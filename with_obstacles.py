@@ -52,27 +52,45 @@ class PathReplanner:
 
     def check_intersection(self, start_point, end_point, obstacle):
         """
-        Check if line segment intersects with obstacle and get intersection points,
-        ensuring correct ordering of entry/exit points
+        Check if line segment intersects with obstacle and get intersection points.
+        Handles all types of intersections including MultiLineString cases.
         """
         line = LineString([start_point, end_point])
         if line.intersects(obstacle):
             intersection = line.intersection(obstacle)
             points = []
             
-            # Convert intersection to points
+            # Handle different types of intersections
             if intersection.geom_type == 'Point':
                 points = [intersection]
             elif intersection.geom_type == 'MultiPoint':
                 points = list(intersection.geoms)
-            elif intersection.geom_type in ['LineString', 'MultiLineString']:
-                points = [Point(p) for p in intersection.coords]
+            elif intersection.geom_type == 'LineString':
+                # For LineString, take endpoints
+                points = [Point(intersection.coords[0]), Point(intersection.coords[-1])]
+            elif intersection.geom_type == 'MultiLineString':
+                # For MultiLineString, take the outermost points
+                all_coords = []
+                for line in intersection.geoms:
+                    all_coords.extend(line.coords)
+                if all_coords:
+                    # Sort coordinates by distance from start_point
+                    sorted_coords = sorted(all_coords, 
+                                        key=lambda coord: Point(coord).distance(Point(start_point)))
+                    points = [Point(sorted_coords[0]), Point(sorted_coords[-1])]
+            
+            # Remove duplicate points
+            unique_points = []
+            for p in points:
+                if not any(p.equals(existing_p) for existing_p in unique_points):
+                    unique_points.append(p)
             
             # Sort points by distance along the original line
-            if points:
-                base_line = LineString([start_point, end_point])
-                points.sort(key=lambda p: base_line.project(p))
-                return points
+            if unique_points:
+                # Project points onto the original line for consistent ordering
+                unique_points.sort(key=lambda p: line.project(p))
+                # Ensure we have at most 2 points (entry and exit)
+                return [unique_points[0], unique_points[-1]] if len(unique_points) > 1 else unique_points
                 
         return []
 
@@ -126,26 +144,29 @@ class PathReplanner:
             added_bypass = False
             
             for obstacle in self.buffered_obstacles:
-                intersection_points = self.check_intersection(start_point, end_point, obstacle)
-                
-                if intersection_points and len(intersection_points) >= 2:
-                    intersections_found += 1
-                    print(f"Found intersection {intersections_found} at segment {i}")
+                try:
+                    intersection_points = self.check_intersection(start_point, end_point, obstacle)
                     
-                    # Sort intersection points by distance from start
-                    intersection_points.sort(key=lambda p: Point(start_point).distance(p))
-                    entry_point = intersection_points[0]
-                    exit_point = intersection_points[-1]
-                    
-                    # Get bypass points
-                    bypass_points = self.get_clockwise_boundary_points(
-                        obstacle, entry_point, exit_point
-                    )
-                    
-                    if bypass_points:
-                        replanned_path.extend(bypass_points)
-                        added_bypass = True
-                        break
+                    if intersection_points and len(intersection_points) >= 2:
+                        intersections_found += 1
+                        print(f"Found intersection {intersections_found} at segment {i}")
+                        
+                        entry_point = intersection_points[0]
+                        exit_point = intersection_points[-1]
+                        
+                        # Get bypass points
+                        bypass_points = self.get_clockwise_boundary_points(
+                            obstacle, entry_point, exit_point
+                        )
+                        
+                        if bypass_points:
+                            replanned_path.extend(bypass_points)
+                            added_bypass = True
+                            break
+                except Exception as e:
+                    print(f"Warning: Error processing intersection at segment {i}: {e}")
+                    # Skip problematic intersection and continue with original path
+                    continue
             
             if not added_bypass:
                 replanned_path.append(start_point)
@@ -158,6 +179,7 @@ class PathReplanner:
             
         print(f"Path replanning complete. Found {intersections_found} intersections.")
         return np.array(replanned_path)
+
 
     def visualize_path(self, replanned_path=None):
         """Visualize original path, obstacles, and replanned path"""

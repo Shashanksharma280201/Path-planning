@@ -332,8 +332,8 @@ class SinglePassCoverage:
 def main():
     try:
         script_dir = os.path.dirname(os.path.abspath(__file__))
-        input_file = "/home/flo/mmr_ws/paths/bad_bad_path.csv"
-        output_file = os.path.join(script_dir, "coverage_path.csv")
+        input_file = "/home/flo/Music/mmr_old_ws/paths/bigmap.csv"
+        output_file = os.path.join(script_dir, "new_coverage_path.csv")
         
         # Get user inputs with validation
         while True:
